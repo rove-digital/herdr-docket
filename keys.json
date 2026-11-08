@@ -1,5 +1,5 @@
 {
   "layout:Docket": {
-    "ctrl-shift-b": "docket.toggle-dock"
+    "ctrl-shift-b": "layout.toggle:docket-lower"
   }
 }

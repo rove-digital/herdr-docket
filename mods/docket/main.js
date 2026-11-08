@@ -1,21 +1,33 @@
 // The Docket layout's bottom dock. One mod, three rows, chosen by props().part:
-//   "tabs":   the shown space's tabs (a status dot per pane, program icon, name, time; compact
-//             when they don't fit), +, then changes / files / search / machine / settings /
-//             collapse on the right.
+//   "tabs":   the shown space's tabs, centred, between dotted dividers (a status dot per pane,
+//             program icon, name, time; compact when they don't fit), +, then changes / files /
+//             search / machine / settings / collapse on the right.
 //   "spaces": a dotted rule along the top, then spaces grouped by machine (this computer first,
-//             then each machine by name, shown even with no spaces): status dots, the space's
-//             number, its name, and a + per group for a new space there.
+//             then each machine by name, shown even with no spaces), centred: status dots, the
+//             space's number, its name, and a + per group for a new space there.
 //   "agents": the ruler, then every agent on every machine (helpers too) as flags hanging
-//             from it, until it closes, and the HERDR wordmark on the right. A new agent
-//             slides in from the left and bumps the others along; once placed, they keep their
-//             order. Clicking a flag opens its pane; the focused pane's agent is outlined.
-// Collapsing the dock hides the spaces and agents rows; the tabs row stays.
+//             from it, centred, until it closes, and the HERDR wordmark on the right. A new
+//             agent slides in from the left and bumps the others along; once placed, they keep
+//             their order. Clicking a flag opens its pane; the focused pane's agent is outlined.
+//             An agent that needs you gets a speech bubble saying what about (one open at a
+//             time; the others closed up small until hovered).
+// Collapsing the dock hides the spaces and agents rows (the layout's "docket-lower"); the tabs
+// row stays.
 // Every colour is a theme token from theme(): the layout's own theme (Docket-Sunset) unless the
 // person picks another, which the dock then follows. Shades are mixed from tokens, never hex.
 
 import { View, div, svg, image, PathBuilder } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
-import { agents, terminals, spaces, machines, panes, focused, run, shared, setShared, setAgentOrder, openOverlay, props, layout, theme, nextCommand } from "herdr";
+import { h_flex, v_flex, Popup } from "gpui-base";
+import { agents, terminals, spaces, machines, panes, focused, run, shared, setShared, setAgentOrder, openOverlay, props, layout, theme } from "herdr";
+
+// Light or dark, read from the theme's own background: a few pieces (focused flag outline, idle
+// label, wordmark ink) differ between them.
+function isDark() {
+  const bg = theme().background;
+  if (!/^#[0-9a-f]{6}/i.test(bg ?? "")) return true;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(bg.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b < 128;
+}
 
 const ICON = (n) => `mods/docket/${n}.svg`;
 
@@ -26,11 +38,10 @@ const FW = 41;           // flag width
 const FH = 56;           // flag body height
 const GAP = 3;           // between flags
 const BP = 3;            // a flag's block pixel: its outline, drop shadow and corner steps
-const LEFT = 18;         // where the stack starts: the first flag sits under the computer icon
+const LEFT = 18;         // the furthest left the (centred) stack of flags may start
 // The ruler: a tall mark under every flag slot's arrow, 3 short ticks between. Flags step
 // FW + GAP = 44 px, so ticks are 11 px apart; when flags close up, the ruler does too.
 const TICKS = 4;
-const ANCHOR = LEFT + Math.floor(FW / 2); // the ruler's tall mark over the first flag's arrow
 const WHEEL = 40;        // px of scroll per tab step
 // Motion. Newcomers slide in from past the left edge (fully shown, no fade), starting fast
 // and slowing as they settle (ease-out), one after another, and the flags already there move
@@ -50,6 +61,22 @@ const SP_TOP = 8;        // extra room between the dotted line and the spaces (t
 const FLASH = new Set(["blocked", "working"]); // flags that flash
 const FLASH_LOOP = { from: 0, to: 0.2, period: 2400 }; // a dark wash over face and icon, on one beat
 const KNOWN = new Set(["working", "blocked", "done", "idle"]);
+// The speech bubble over a flag that needs you: its tail's centre sits TAIL_IN in from the
+// bubble's edge, its tip TAIL_ABOVE px above the flag's arrow tip. It runs out to the right (to
+// the left when there's more room there), folds onto a second line at about 60 characters
+// (BUB_TEXT px), or sooner when the window hasn't the room, and is capped at BUB_CAP characters
+// and at what two lines of the room hold.
+const TAIL_IN = 20;
+const TAIL_ABOVE = 6;
+const TAIL = [[8, 0, 2], [4, 2, 2]]; // the tail's rows, wide to narrow: width, top, height
+const TAIL_H = 4;
+const TAIL_BOX = 12;     // the box the tail's rows are centred in, px
+const BUB_TEXT = 415;    // where the text folds: about 60 characters at 13 px
+const BUB_CAP = 140;     // the longest message shown, characters
+const BUB_CHAR = 6;      // a character's rough width at 13 px
+const BUB_BOLD = "Noto Sans"; // the agent's name, in a family with a real bold face
+const BUB_PAD = 2 * BP + 18 + 2 * BP; // the text's side padding plus outline and shadow
+const BUB_EDGE = 8;      // the bubble keeps this far from the window's edges
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -60,11 +87,11 @@ function find(node, id) {
   return null;
 }
 
-const collapsed = () => Boolean(find(layout(), "docket-agents")?.hidden);
-function toggleDock() {
-  const cmd = collapsed() ? "layout.show" : "layout.hide";
-  for (const id of ["docket-spaces", "docket-agents"]) run(cmd, { id });
-}
+// Collapsing the dock hides "docket-lower", the layout's column holding the spaces and agents
+// rows. Ctrl+Shift+B does the same straight from keys.json ("layout.toggle:docket-lower"), so
+// the mod never waits on a key command (a waiting loop outlives each reload of this file).
+const collapsed = () => Boolean(find(layout(), "docket-lower")?.hidden);
+const toggleDock = () => run("layout.toggle", { id: "docket-lower" });
 
 // ---- colour ------------------------------------------------------------------------------
 
@@ -107,24 +134,25 @@ function glyph(p, size, c) {
 }
 
 // The agents bar's ruler, along the top of its row: a 1 px tick every `gap` px rising from
-// its foot, every TICKS-th one tall, the tall ones on ANCHOR's beat (over the flags' arrows).
-// All the ticks are one filled path, painted as one element. The path depends only on the
-// bar's width and the spacing (which changes as flags crowd in), so the last one is kept and
-// rebuilt only when either changes.
+// its foot, every TICKS-th one tall, the tall ones on `anchor`'s beat (the first flag's arrow,
+// so one sits over every flag's). All the ticks are one filled path, painted as one element.
+// The path depends only on the bar's width, the spacing (which changes as flags crowd in) and
+// the anchor (which moves as the centred stack grows), so the last one is kept and rebuilt
+// only when one of them changes.
 const RULER_H = STRIP - 5; // the ruler's height: its ticks' feet sit 5 px above the bar
 let rulerCache = null;
-function rulerPath(rw, gap) {
-  if (rulerCache?.rw === rw && rulerCache.gap === gap) return rulerCache.path;
+function rulerPath(rw, gap, anchor) {
+  if (rulerCache?.rw === rw && rulerCache.gap === gap && rulerCache.anchor === anchor) return rulerCache.path;
   const path = PathBuilder.fill();
-  for (let i = -Math.floor(ANCHOR / gap); ANCHOR + i * gap < rw; i++) {
-    const x = Math.round(ANCHOR + i * gap), top = RULER_H - (((i % TICKS) + TICKS) % TICKS === 0 ? 5.5 : 2.5);
+  for (let i = -Math.floor(anchor / gap); anchor + i * gap < rw; i++) {
+    const x = Math.round(anchor + i * gap), top = RULER_H - (((i % TICKS) + TICKS) % TICKS === 0 ? 5.5 : 2.5);
     path.add_polygon([[x, top], [x + 1, top], [x + 1, RULER_H], [x, RULER_H]], true);
   }
-  rulerCache = { rw, gap, path: path.build() };
+  rulerCache = { rw, gap, anchor, path: path.build() };
   return rulerCache.path;
 }
-function ruler(t, rw, gap) {
-  return div().absolute().top(0).left(0).right(0).h(RULER_H).child(window.paint_path(rulerPath(rw, gap), t.input));
+function ruler(t, rw, gap, anchor) {
+  return div().absolute().top(0).left(0).right(0).h(RULER_H).child(window.paint_path(rulerPath(rw, gap, anchor), t.input));
 }
 
 // The dotted rule along the top of the spaces row, as one painted path rather than hundreds
@@ -226,10 +254,13 @@ function markPaths(px) {
   return paths;
 }
 function wordmark(t, { px, markW }) {
-  const low = mix(t.foreground, t.chrome, MARK_SHADE);
+  // Dark: cream letters (foreground) with a dark shadow and inset. Light: burnt orange letters
+  // (ansi3), their bottom rows and inset edges deepened toward the text colour, on a tan shadow.
+  const dark = isDark(), face = dark ? t.foreground : t.ansi3, toward = dark ? t.chrome : t.foreground;
+  const low = mix(face, toward, MARK_SHADE);
   const ink = {
-    shadow: t.chrome, lit: t.foreground, low,
-    litInset: mix(t.foreground, t.chrome, MARK_INSET_DARK), lowInset: mix(low, t.chrome, MARK_INSET_DARK),
+    shadow: t.chrome, lit: face, low,
+    litInset: mix(face, toward, MARK_INSET_DARK), lowInset: mix(low, toward, MARK_INSET_DARK),
   };
   ink.litTop = ink.litInset; ink.lowTop = ink.lowInset;
   const paths = markPaths(px);
@@ -257,14 +288,23 @@ function ago(at, now) {
   return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
 }
 
+// What an agent last said about itself in its status report (OSC 7501 `msg`, e.g. what it's
+// asking you), if anything.
+function message(k) {
+  const m = k?.report?.msg;
+  return typeof m === "string" && m.trim() ? m.trim() : null;
+}
+
 // Every agent: those with panes, then paneless helpers (sub-agents) from the core,
-// which take their parent's space.
+// which take their parent's space. Each carries its status message (`msg`).
 function everyAgent() {
-  const list = agents().map((a) => ({ address: a.address, status: a.status, program: a.program, pane: a.pane, space: a.space, tab: a.tab }));
+  const all = terminals();
+  const said = new Map(all.map((k) => [k.address, message(k)]));
+  const list = agents().map((a) => ({ address: a.address, status: a.status, program: a.program, pane: a.pane, space: a.space, tab: a.tab, msg: said.get(a.address) ?? null }));
   const by = new Map(list.map((a) => [a.address, a]));
   // As the agents list: a helper reports to its parent, so it is never "done" (it has
   // simply finished: idle), and one that errored has finished too.
-  let kids = terminals()
+  let kids = all
     .filter((k) => k.parent && k.state === "live" && !by.has(k.address))
     .map((k) => ({ k, status: k.status === "done" || k.status === "error" ? "idle" : k.status }))
     .filter((x) => KNOWN.has(x.status));
@@ -278,7 +318,7 @@ function everyAgent() {
       // No space after every pass: another app's terminal, not Herdr's.
       if (!space) { if (pass < 3) later.push({ k, status }); continue; }
       const tab = parent?.tab ?? qualify(k.labels?.["herdr.tab"], m) ?? null;
-      const a = { address: k.address, status, program: k.program, pane: null, space, tab, helper: true };
+      const a = { address: k.address, status, program: k.program, pane: null, space, tab, helper: true, msg: message(k) };
       list.push(a);
       by.set(a.address, a);
     }
@@ -356,19 +396,6 @@ export default class Docket extends View {
     this.motion = new Map();  // address -> { kind: "enter" | "shift", delay, until }
     // Arrival order, first seen first, kept across restarts. Drawn newest on the left.
     try { this.order = JSON.parse(localStorage.getItem("order") ?? "[]"); } catch { this.order = []; }
-    // Ctrl+Shift+B (keys.json: "docket.toggle-dock") collapses or expands the dock. Only the
-    // tabs row listens: it is never hidden, and one listener toggles once.
-    if (this.part === "tabs") cx.spawn(async (cx) => {
-      for (;;) {
-        const c = await nextCommand();
-        // First, so a build replaced by a reload stops here instead of toggling too. Until it
-        // wakes, a replaced build keeps waiting, and piled-up waiting builds get this row's
-        // render interrupted: after editing this file, run `herdr-app do docket.wake` (a
-        // command no copy acts on) to wake and stop them.
-        cx.notify();
-        if (c === "toggle-dock") toggleDock();
-      }
-    });
     // Times read in minutes: redraw as the minute turns, so every row agrees.
     if (this.part !== "spaces") {
       const tick = (cx) => { cx.notify(); cx.timer.after(60000 - (Date.now() % 60000), tick); };
@@ -435,6 +462,12 @@ export default class Docket extends View {
       this.tabIds = new Map([...(this.tabIds ?? [])].filter(([id]) => live.has(id)));
       this.tabIds.set(space.id, new Set(tabs.map((c) => c.id)));
     }
+    // Measured label widths (see below) are kept only for tabs that still exist, so closed
+    // tabs don't pile up in it over a long session.
+    if (this.labelW?.size) {
+      const open = new Set(spaces().flatMap((s) => s.tabs.map((c) => c.id)));
+      for (const id of this.labelW.keys()) if (!open.has(id)) this.labelW.delete(id);
+    }
     const raw = everyAgent();
     const st = stamps(raw, cx, true);
     const list = resolve(raw, st);
@@ -462,8 +495,8 @@ export default class Docket extends View {
       const { mine, prog, name } = label(c);
       const n = Math.max(1, mine.length);
       const est = 7 + Math.min(170, name.length * 8.3) + 12 + 24;
-      return sum + (i === 0 ? 35.5 : 26) + 26 + 1 + n * 6 + (n - 1) * 4 + (prog?.icon ? 25 : 0) + (this.labelW.get(c.id) ?? est);
-    }, 0) + 17 + 32;
+      return sum + 26 + 26 + 1 + n * 6 + (n - 1) * 4 + (prog?.icon ? 25 : 0) + (this.labelW.get(c.id) ?? est);
+    }, 0) + 1 + 17 + 32; // + the leading divider
     const compact = Boolean(this.tabsW) && need > this.tabsW;
     const tile = (c, i) => {
       const { mine, lead, prog, name } = label(c);
@@ -474,8 +507,7 @@ export default class Docket extends View {
         const a = p && list.find((a) => a.pane === p.pane);
         return (a && KNOWN.has(a.status)) ? a.status : "idle";
       });
-      // The first tab's dot sits under the computer icon's centre (30 + 17 / 2) in the row below.
-      const el = h_flex().id(`tab-${c.id}`).h(TAB_H).flex_none().pl(i === 0 ? 35.5 : 26).pr(26).items_center()
+      const el = h_flex().id(`tab-${c.id}`).h(TAB_H).flex_none().px(26).items_center()
         // The active tab: its text and icon in the theme's burnt orange (ansi3).
         .text_color(c.active ? t.ansi3 : t.foreground).cursor_pointer()
         .on_mouse_down("left", (e) => {
@@ -516,7 +548,13 @@ export default class Docket extends View {
           .child(div().ml(7).flex_none().text_size(15).child(String(c.index))));
       return [el, this.dots(t, `sep-${c.id}`)];
     };
+    // Centred on the row (so on the spaces and agents below), not just on the room left of the
+    // tools: the tabs start where their middle meets the row's, moved left as far as they must
+    // to stay clear of the tools, and from the left edge when they overflow. Both widths are
+    // measured as drawn.
+    const lead = Math.max(0, Math.min(((this.rowW ?? 0) - (this.tabsC ?? 0)) / 2, (this.tabsW ?? 0) - (this.tabsC ?? 0)));
     return h_flex().size_full().min_w(0).items_center().bg(t.background)
+      .on_size_change((size, cx) => { if (size.width !== this.rowW) { this.rowW = size.width; cx.notify(); } })
       // A drag let go anywhere else in the row ends without a move (a tab's own release runs first).
       .on_mouse_up("left", (_e, cx) => { if (this.drag) { this.drag = null; cx.notify(); } })
       // One tab per notch, or per 40 px of a trackpad swipe, not one per event.
@@ -529,9 +567,13 @@ export default class Docket extends View {
       })
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().overflow_x_scrollbar()
         .on_size_change((size, cx) => { if (size.width !== this.tabsW) { this.tabsW = size.width; cx.notify(); } })
-        .children(tabs.flatMap(tile))
-        .child(div().ml(17).flex_none().child(this.button(t, "tab-new", "plus", "New tab",
-          () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 }), 14))))
+        .child(h_flex().id("tab-strip").flex_none().h_full().ml(Math.round(lead)).items_center()
+          .on_size_change((size, cx) => { if (size.width !== this.tabsC) { this.tabsC = size.width; cx.notify(); } })
+          // A divider before the first tab too, so every tab sits between two.
+          .when(tabs.length > 0, (el) => el.child(this.dots(t, "sep-start")))
+          .children(tabs.flatMap(tile))
+          .child(div().ml(17).flex_none().child(this.button(t, "tab-new", "plus", "New tab",
+            () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 }), 14)))))
       .child(div().pl(12).pr(14).child(this.tools(t)));
   }
 
@@ -595,13 +637,15 @@ export default class Docket extends View {
       .hover((s) => s.bg(t.hover))
       .on_click(() => run("space.new", m ? { machine: m } : {}))
       .child(svg(ICON("plus")).size(12));
-    return h_flex().relative().size_full().min_w(0).pt(SP_TOP).pl(30).pr(16).items_center().bg(t.background).text_size(15)
+    return h_flex().relative().size_full().min_w(0).pt(SP_TOP).px(16).items_center().bg(t.background).text_size(15)
       // A dotted rule along the top, between the tabs and spaces rows (see DOTTED_RULE).
       .child(div().absolute().top(0).left(0).right(0).h(1).child(window.paint_path(DOTTED_RULE, t.input)))
       // A drag let go anywhere else in the row ends without a move (a space's own release runs first).
       .on_mouse_up("left", (_e, cx) => { if (this.drag) { this.drag = null; cx.notify(); } })
-      .child(h_flex().id("sp-scroll").flex_1().min_w(0).h_full().items_center().gap(18).overflow_x_scrollbar()
-        // A short rule after each group, as tall as their icons.
+      .child(h_flex().id("sp-scroll").flex_1().min_w(0).h_full().items_center().overflow_x_scrollbar()
+        // Centred: auto margins either side, which give way to the left edge when it overflows.
+        .child(h_flex().flex_none().mx_auto().h_full().items_center().gap(18)
+        // A short rule after each group, as tall as their icons; none after the last.
         .children(groups.flatMap((g, gi) => [
           // Gaps less the spaces' padding (24 between spaces, as before).
           h_flex().id(`grp-${gi}`).flex_none().h_full().gap(24 - 2 * SP_PAD).items_center()
@@ -612,8 +656,8 @@ export default class Docket extends View {
               .when(Boolean(g.machine), (el) => el.child(div().text_size(11.5).text_color(t.input).child(g.machine))))
             .children(g.spaces.map(item))
             .child(div().ml(SP_PAD - 8).child(add(g.machine))),
-          div().id(`grp-rule-${gi}`).w(1).h(17).flex_none().bg(t.input),
-        ])));
+          ...(gi < groups.length - 1 ? [div().id(`grp-rule-${gi}`).w(1).h(17).flex_none().bg(t.input)] : []),
+        ]))));
   }
 
   // ---- agents --------------------------------------------------------------------------
@@ -622,6 +666,8 @@ export default class Docket extends View {
     if (a.pane) run("pane.focus", { pane: a.pane });
     else run("terminal.peek", { terminal: a.address });
     markSeen(a.address);
+    // Opened, it speaks for being focused (see agentsBar), no longer for the pointer.
+    this.hoverBub = null;
   }
 
   // Appends agents not seen before and drops closed ones (only on machines the list has
@@ -637,11 +683,80 @@ export default class Docket extends View {
     }
   }
 
-  // A flag: its arrow on the ruler strip, its body hanging into the bar. A closed one
-  // (`live` false) takes no clicks while it fades out. `current`: the agent in the focused
-  // pane, whose outline turns cream (foreground), or burnt orange (ansi3) on an idle flag,
-  // which is cream itself.
-  flag(t, a, x, opacity, label, tip, live = true, m = null, current = false) {
+  // A speech bubble over a flag that needs you, in the flag's own block style: a dark outline
+  // with rounded ends, a dark drop shadow down-right, cream inside with a darker bottom band,
+  // and a small stepped tail from that band, its tip just above the flag's arrow tip. It's a
+  // Popup, so it paints above every row: its trigger is a 1 px mark on the flag's top edge, and
+  // the bubble's bottom corner is pinned to it. `bub` (from agentsBar) is either
+  //   { name, text, room, flip }: open, "group / space" in bold over the message (already
+  //     capped), its text no wider than `room` px; `flip` runs it out to the left, tail on the
+  //     right, else to the right; the tail sits TAIL_IN in from the bubble's edge;
+  //   { mini: true }: closed, for a blocked flag waiting its turn while another speaks: the
+  //     flag's width, an ellipsis inside, its tail central over the arrow.
+  bubble(t, a, bub) {
+    const { mini = false, flip = false, name = "", text = "", room = 0 } = bub;
+    // Cream (the theme's foreground; in a light theme, its popover paper), with dark ink.
+    const dark = isDark(), c = dark ? t.foreground : t.popover, band = mix(c, t.chrome, FLAG_SHADE);
+    const ink = dark ? t.accent_foreground : t.foreground;
+    const at = (l, r, tp, b, bg) => div().absolute().left(l).right(r).top(tp).bottom(b).bg(bg);
+    // A box with rounded ends in block pixels, inset l/r/tp/b from the bubble's edges: its
+    // corners stepped in `steps` blocks (2 for the outline and shadow, so its face inside, one
+    // block in, steps once and follows it round).
+    const rounded = (l, r, tp, b, bg, steps) => Array.from({ length: steps + 1 }, (_, i) =>
+      at(l + (steps - i) * BP, r + (steps - i) * BP, tp + i * BP, b + i * BP, bg));
+    const body = div().relative().flex_none()
+      // Mini: its outline exactly the flag's width (the shadow beyond it, as the flag's is).
+      .when(mini, (el) => el.w(FW + BP))
+      .children(rounded(BP, 0, BP, 0, t.chrome, 2))                 // drop shadow
+      .children(rounded(0, BP, 0, BP, t.chrome, 2))                 // outline
+      .children(rounded(BP, 2 * BP, BP, 2 * BP, c, 1))              // face
+      // The bottom band, its ends stepped in with the face's.
+      .child(div().absolute().left(2 * BP).right(3 * BP).bottom(2 * BP).h(BP).bg(band))
+      .child(div().absolute().left(BP).right(2 * BP).bottom(3 * BP).h(BP).bg(band))
+      // Closed: an ellipsis, in the name's bold.
+      .when(mini, (el) => el.child(h_flex().relative().justify_center().pr(BP).pt(BP).pb(3 * BP)
+        .text_size(13).text_color(ink).font_family(BUB_BOLD).font_weight(700).child("…")))
+      // Open: "group / space" on its own line, bold in BUB_BOLD (the UI font draws no bold
+      // here), then the message under it.
+      .when(!mini, (el) => el.child(v_flex().relative().max_w(Math.min(room, BUB_TEXT))
+        .pl(BP + 9).pr(2 * BP + 9).pt(BP + 5).pb(4 * BP + 3).text_size(13).text_color(ink)
+        .when(Boolean(name), (el) => el.child(div().truncate().font_family(BUB_BOLD).font_weight(700).child(name)))
+        .child(div().whitespace_normal().child(text))));
+    // The tail: stepped rows (TAIL), in the band's colour, under an opening in the outline 4 px
+    // wider than its first row, so it narrows in steps all the way from the band to its tip.
+    const half = TAIL_BOX / 2;
+    const tail = div().relative().w(TAIL_BOX).h(TAIL_H).mt(-BP).flex_none()
+      .when(mini, (el) => el.ml(Math.round(FW / 2) - half))
+      .when(!mini && flip, (el) => el.mr(TAIL_IN - half)).when(!mini && !flip, (el) => el.ml(TAIL_IN - half))
+      .child(div().absolute().left((TAIL_BOX - TAIL[0][0] - 4) / 2).top(-BP).w(TAIL[0][0] + 4).h(BP).bg(band))
+      .children(TAIL.map(([w, tp, h]) =>
+        div().absolute().left((TAIL_BOX - w) / 2).top(tp).w(w).h(h).bg(band)));
+    const content = v_flex().id(`bub-in-${a.address}`).flex_none().cursor_pointer().on_click(() => this.open(a))
+      // Stays open while the pointer is on it (crossing over from its flag).
+      .on_hover((on, cx) => this.hoverSpeak(a.address, on, cx))
+      .when(flip, (el) => el.items_end()).when(!flip, (el) => el.items_start())
+      .child(body).child(tail);
+    return Popup.new(`bub-${a.address}`, div().size(1)).absolute().top(-TAIL_ABOVE)
+      // Mini: pinned at the flag's left edge, so it sits square over the flag.
+      .left(mini ? 0 : Math.round(FW / 2 + (flip ? TAIL_IN : -TAIL_IN)))
+      .anchor(!mini && flip ? "bottom_right" : "bottom_left").content(content);
+  }
+
+  // The pointer on (or off) a blocked flag or its bubble: its bubble is open while it's there.
+  // Leaving waits a moment, so the pointer can cross from a flag to its bubble.
+  hoverSpeak(address, on, cx) {
+    if (on) { this.hoverBub = address; this.hoverToken = null; cx.notify(); return; }
+    if (this.hoverBub !== address) return;
+    const token = (this.hoverToken = {});
+    cx.timer.after(250, (cx) => {
+      if (this.hoverToken !== token) return;
+      this.hoverBub = null;
+      cx.notify();
+    });
+  }
+
+  // `bub`: its speech bubble (see bubble()), when it needs you.
+  flag(t, a, x, opacity, label, tip, live = true, m = null, current = false, bub = null) {
     const c = color(t, a.status);
     // Pixel block style: a dark outline (its top tucked under the row above), a
     // dark drop shadow down-right, stepped bottom corners, and a darker band along the
@@ -658,13 +773,17 @@ export default class Docket extends View {
       .opacity(opacity)
       .transition("left", m ? { ...(m.kind === "enter" ? ENTER : SHIFT), delay: m.delay } : SHIFT)
       .transition("opacity", FADE_OUT)
-      .when(live, (el) => el.cursor_pointer().tooltip(tip).on_click(() => this.open(a)))
+      .when(live, (el) => el.cursor_pointer().on_click(() => this.open(a)))
+      // The pointer on a blocked flag opens its bubble (which says more than a tooltip would,
+      // so it has none); leaving closes it again.
+      .when(live && a.status !== "blocked", (el) => el.tooltip(tip))
+      .when(live && a.status === "blocked", (el) => el.on_hover((on, cx) => this.hoverSpeak(a.address, on, cx)))
       .child(arrow)
       .child(v_flex().relative().w_full().h(FH).flex_none().items_center()
         // Room under the icon, clear of the bottom band.
         .justify_end().pb(11).gap(5)
         .children(slab(BP, BP, FW, FH, t.chrome))                       // drop shadow
-        .children(slab(0, 0, FW, FH, !current ? t.chrome : a.status === "idle" ? t.ansi3 : t.foreground)) // outline
+        .children(slab(0, 0, FW, FH, !current ? t.chrome : !isDark() || a.status === "idle" ? t.ansi3 : t.foreground)) // outline (light: always burnt orange)
         .children(slab(BP, 0, FW - 2 * BP, inner, c))                    // face
         .children(slab(BP, inner - 2 * BP, FW - 2 * BP, 2 * BP, mix(c, t.chrome, FLAG_SHADE))) // bottom band
         // Needs you, or working: a dark wash over the colour, under the time and icon, pulses
@@ -672,12 +791,15 @@ export default class Docket extends View {
         .when(FLASH.has(a.status), (el) => el.children(slab(BP, 0, FW - 2 * BP, inner, t.chrome)
           .map((b) => b.loop("opacity", FLASH_LOOP))))
         // An idle flag's label in the active tab's text colour; the others in their own colour, deepened.
-        .child(div().h(17).text_size(13).text_color(a.status === "idle" ? t.accent_foreground : deeper(c, 0.28)).child(label))
+        .child(div().h(17).text_size(13).text_color(a.status === "idle" && isDark() ? t.accent_foreground : deeper(c, 0.28)).child(label))
         .child(glyph(a.program, 17, deeper(c, 0.86)) ?? div().size(17))
         // ...and the icon pulses with it: a dark copy over it, on the same beat.
         .when(FLASH.has(a.status) && Boolean(a.program?.icon?.endsWith(".svg")), (el) => el.child(
           div().absolute().bottom(11).left((FW - 17) / 2).size(17)
-            .child(glyph(a.program, 17, t.chrome)).loop("opacity", FLASH_LOOP))));
+            .child(glyph(a.program, 17, t.chrome)).loop("opacity", FLASH_LOOP))))
+      // Needs you: a speech bubble above it saying what about (or closed up small while
+      // another's is open; hovering the flag opens it).
+      .when(live && Boolean(bub), (el) => el.child(this.bubble(t, a, bub)));
   }
 
   agentsBar(t, cx) {
@@ -725,7 +847,11 @@ export default class Docket extends View {
     const size = markSize(this.h);
     const room = W - LEFT - size.markW - EDGE_RIGHT - 16 - FW; // flags stop short of the wordmark
     const s = stack.length > 1 ? Math.max(10, Math.min(step, room / (stack.length - 1))) : step;
-    const place = new Map(stack.map((a, i) => [a.address, LEFT + i * s]));
+    // The stack centred on the bar, but never further right than its room (short of the
+    // wordmark) nor further left than LEFT.
+    const span = stack.length ? (stack.length - 1) * s + FW : 0;
+    const start = Math.round(Math.max(LEFT, Math.min((W - span) / 2, LEFT + room - (span - FW))));
+    const place = new Map(stack.map((a, i) => [a.address, start + i * s]));
 
     // Closed agents fade out where they stood while the rest close up. Each ghost has its
     // own token, so an older timer never removes a newer ghost.
@@ -754,6 +880,19 @@ export default class Docket extends View {
       cx.timer.after(40, (cx) => { if (this.known.get(a.address) === "entering") this.known.set(a.address, "in"); cx.notify(); });
     }
     let moving = 0;
+    // Only one speech bubble open at a time, so close flags' bubbles never pile up: the blocked
+    // flag the pointer is on, else the agent that's been waiting on you longest and that you
+    // haven't opened (its flag, or its pane) since it started waiting. Every other blocked flag
+    // shows a mini bubble (bubble() with `mini`); hovering it opens its bubble until the pointer leaves.
+    const seen = shared("docket.seen") ?? {};
+    const waited = (a) => st[a.address]?.at ?? now;
+    const blocked = stack.filter((a) => a.status === "blocked");
+    const unseen = blocked.filter((a) => (seen[a.address] ?? 0) < waited(a));
+    const longest = unseen.reduce((m, a) => (!m || waited(a) < waited(m) ? a : m), null);
+    // ...and before that, a blocked agent in the focused pane (one you've just opened): its
+    // bubble stays open while you're there.
+    const inFocus = here && blocked.find((a) => a.pane === here);
+    const speaking = blocked.some((a) => a.address === this.hoverBub) ? this.hoverBub : inFocus?.address ?? longest?.address;
     const flags = [];
     for (const a of stack) {
       this.ghosts.delete(a.address);
@@ -768,7 +907,25 @@ export default class Docket extends View {
       const at = st[a.address]?.at ?? 0;
       const what = a.status === "blocked" ? "needs you" : a.status === "working" ? "working" : a.status === "done" ? "done" : "idle";
       const tip = `${a.program?.name ?? "Agent"}${a.helper ? " (helper)" : ""} · ${names.get(a.space) ?? ""} · ${what}`;
-      flags.push(this.flag(t, a, x, 1, at ? ago(at, now) : "", tip, true, this.motion.get(a.address), Boolean(here && a.pane === here)));
+      // Its bubble: to the right, unless the message won't fit on one line there and there's
+      // more room to the left. The room is the window's, short of its edges (the bubble draws
+      // above the dock, so it may pass over the wordmark).
+      let bub = a.status === "blocked" ? { mini: true } : null;
+      if (a.address === speaking) {
+        const right = W - BUB_EDGE - (x + FW / 2 - TAIL_IN) - BUB_PAD;
+        const left = x + FW / 2 + TAIL_IN - BUB_EDGE - BUB_PAD;
+        // Which agent it is: "group / space", the group being the machine it runs on (as the
+        // spaces row groups spaces), left out for this computer. Then what it says.
+        const name = [machineOf(a.address), names.get(a.space)].filter(Boolean).join(" / ");
+        let text = (a.msg ?? "Needs you").replace(/\s+/g, " ");
+        const flip = Math.min(Math.max(name.length, text.length) * BUB_CHAR, BUB_TEXT) > right && left > right;
+        const room = Math.max(120, flip ? left : right);
+        // The message capped, and to what two lines hold (a little short, as widths are only estimated).
+        const cap = Math.min(BUB_CAP, Math.floor((2 * Math.min(room, BUB_TEXT) * 0.85) / BUB_CHAR));
+        if (text.length > cap) text = text.slice(0, Math.max(1, cap - 1)).trimEnd() + "…";
+        bub = { flip, text, room, name };
+      }
+      flags.push(this.flag(t, a, x, 1, at ? ago(at, now) : "", tip, true, this.motion.get(a.address), Boolean(here && a.pane === here), bub));
     }
     // Older flags sit under newer ones when they overlap: draw right to left.
     flags.reverse();
@@ -779,8 +936,8 @@ export default class Docket extends View {
     this.last = by;
 
     // The ruler on the strip, anchored on the arrows: slot i's arrow (its flag's centre,
-    // LEFT + i * s + FW / 2) sits on a tall mark, so when flags close up, the ruler does too.
+    // start + i * s + FW / 2) sits on a tall mark, so when flags close up, the ruler does too.
     // The wordmark under the flags, so a crowded stack of flags never hides behind it.
-    return root.child(ruler(t, W, s / TICKS)).child(wordmark(t, size)).children(flags);
+    return root.child(ruler(t, W, s / TICKS, start + Math.floor(FW / 2))).child(wordmark(t, size)).children(flags);
   }
 }

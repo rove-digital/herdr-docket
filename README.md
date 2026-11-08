@@ -1,12 +1,14 @@
 # Docket
 
-A layout for [Herdr App](https://herdr.dev) that puts your tabs, spaces and agents in one dock along the bottom of the window, so your panes get the rest.
+
+A layout for [Herdr App](https://herdr.dev). Dockets come in, you check the work. Inspired by Omarchy Retro 82 and your local chip shop.
 
 ![Docket](preview.png)
 
 ## Features
 
 - **Agent flags.** Every agent on every machine, helpers included, hangs from a ruler as a pixel-art flag in its status colour: amber when working, red-orange (pulsing) when it needs you, teal when done and cream when idle. Click a flag to jump to that agent's pane. The focused agent's flag is outlined.
+- **Speech bubbles.** An agent that needs you says what it wants in a pixel speech bubble above its flag, with its machine and space in bold. If several are waiting, the one that's waited longest gets the bubble and the rest show "…" until you hover over them.
 - **Done stays done.** A finished agent stays teal until you actually open it, so nothing slips past while you're in another tab.
 - **Tabs row.** Each tab shows a status dot per pane, the program's icon, its name, and how long since its agent last changed. When there are too many to fit, tabs shrink to a number, and the row scrolls.
 - **Spaces row.** Spaces are grouped by machine, each with its agents' status dots and a numbered badge. You can drag to reorder, and there's a **+** per machine.

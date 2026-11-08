@@ -88,30 +88,39 @@
       }
     },
     {
-      "id": "docket-spaces",
-      "type": "block",
-      "content": {
-        "mod": "docket",
-        "props": {
-          "part": "spaces"
-        }
-      },
+      "id": "docket-lower",
+      "type": "column",
       "size": {
-        "px": 48
-      }
-    },
-    {
-      "id": "docket-agents",
-      "type": "block",
-      "content": {
-        "mod": "docket",
-        "props": {
-          "part": "agents"
-        }
+        "px": 128
       },
-      "size": {
-        "px": 80
-      }
+      "children": [
+        {
+          "id": "docket-spaces",
+          "type": "block",
+          "content": {
+            "mod": "docket",
+            "props": {
+              "part": "spaces"
+            }
+          },
+          "size": {
+            "px": 48
+          }
+        },
+        {
+          "id": "docket-agents",
+          "type": "block",
+          "content": {
+            "mod": "docket",
+            "props": {
+              "part": "agents"
+            }
+          },
+          "size": {
+            "px": 80
+          }
+        }
+      ]
     }
   ],
   "theme": "Docket-Sunset",
