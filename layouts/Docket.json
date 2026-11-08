@@ -1,0 +1,120 @@
+{
+  "id": "root",
+  "type": "column",
+  "children": [
+    {
+      "id": "top-gap",
+      "type": "row",
+      "size": {
+        "px": 12
+      },
+      "children": []
+    },
+    {
+      "id": "work",
+      "type": "row",
+      "children": [
+        {
+          "id": "main",
+          "type": "block",
+          "padding": [
+            0,
+            12
+          ],
+          "content": {
+            "tab": "active",
+            "pane": {
+              "border": {
+                "width": 1,
+                "color": "input"
+              },
+              "focus": {
+                "width": 1,
+                "color": "ansi3"
+              },
+              "radius": 6,
+              "gap": 12,
+              "header": {
+                "content": {
+                  "mod": "pane"
+                },
+                "height": 30,
+                "position": "top",
+                "reveal": "always"
+              },
+              "lone": true
+            }
+          }
+        },
+        {
+          "id": "docket-files",
+          "type": "block",
+          "hidden": true,
+          "content": {
+            "mod": "docket-files"
+          },
+          "size": {
+            "px": 320
+          },
+          "min": 240,
+          "max": 900
+        },
+        {
+          "id": "docket-changes",
+          "type": "block",
+          "content": {
+            "mod": "docket-changes"
+          },
+          "size": {
+            "px": 368
+          },
+          "min": 280,
+          "max": 900
+        }
+      ],
+      "resizable": true
+    },
+    {
+      "id": "docket-tabs",
+      "type": "block",
+      "content": {
+        "mod": "docket",
+        "props": {
+          "part": "tabs"
+        }
+      },
+      "size": {
+        "px": 79
+      }
+    },
+    {
+      "id": "docket-spaces",
+      "type": "block",
+      "content": {
+        "mod": "docket",
+        "props": {
+          "part": "spaces"
+        }
+      },
+      "size": {
+        "px": 48
+      }
+    },
+    {
+      "id": "docket-agents",
+      "type": "block",
+      "content": {
+        "mod": "docket",
+        "props": {
+          "part": "agents"
+        }
+      },
+      "size": {
+        "px": 80
+      }
+    }
+  ],
+  "theme": "Docket-Sunset",
+  "resizable": false,
+  "preview": "layouts/Docket.svg"
+}

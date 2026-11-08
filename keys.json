@@ -1,0 +1,5 @@
+{
+  "layout:Docket": {
+    "ctrl-shift-b": "docket.toggle-dock"
+  }
+}
