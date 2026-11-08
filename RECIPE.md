@@ -1,11 +1,6 @@
 # Docket
 
-A dock along the bottom of the window. Your panes fill the top. Below them are three stacked rows:
-- the shown space's tabs, with a toolbar on the right;
-- every space, grouped by machine;
-- every agent on every machine, drawn as a pixel-art flag in its status colour hanging from a ruler, with a chunky **HERDR** pixel wordmark at the far right.
-
-The colours come from the bundled **Docket Sunset** theme: deep navy, cream text and burnt-orange highlights. Agents are teal when done, amber when working, red-orange when they need you and cream when idle. A Changes panel (git diff and commit) sits beside the panes, and a Files panel can open next to it.
+Dockets come in, you clip the ticket. Your panes fill the window, and a dock along the bottom keeps your jobs lined up. It shows the tabs in the space you're in, then every space grouped by the machine it runs on. Agent's hang a docket on the rail: amber while it's cooking, red-orange when it needs you, teal when it's ready and cream once it's been picked up. Click a docket to go straight to that agent. It's in navy, cream and burnt orange, with HERDR in big pixel letters at the end of the rail. Inspired by Omarchy Retro 82 and your local chip shop.
 
 ![Docket](preview.png)
 
