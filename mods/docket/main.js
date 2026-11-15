@@ -158,11 +158,11 @@ function ruler(t, rw, gap, anchor) {
 // The dotted rule along the top of the spaces row, as one painted path rather than hundreds
 // of dot elements: a 1 px line across the full width (0% to 100%), dashed 1.5 px on, 5 off,
 // like the tab separators' dots. Built once; window.paint_path paints it in a colour.
-const DOTTED_RULE = PathBuilder.stroke(1).dash_array([1.5, 5]).move_to(0, 0.5).line_to("100%", 0.5).build();
+const DOTTED_RULE = PathBuilder.stroke(1).dash_array([1.5, 5]).move_to(0, 1.5).line_to(4000, 1.5).build();
 // The same dots standing up: the dotted divider between tabs. A percentage only works across
 // (a path's "100%" down draws nothing), so it runs a fixed 200 px down and its box clips it to
 // the tabs row's height.
-const DOTTED_DIVIDER = PathBuilder.stroke(1).dash_array([1.5, 5]).move_to(0.5, 0).line_to(0.5, 200).build();
+const DOTTED_DIVIDER = PathBuilder.stroke(1).dash_array([1.5, 5]).move_to(1.5, 0).line_to(1.5, 200).build();
 
 // ---- wordmark ----------------------------------------------------------------------------
 // HERDR in a chunky pixel font on the right of the agents bar: cream letters (foreground),
@@ -443,7 +443,8 @@ export default class Docket extends View {
   // A dotted divider between tabs (see DOTTED_DIVIDER), from the pane border above to the
   // spaces row below.
   dots(t, id) {
-    return div().id(id).h_full().w(1).flex_none().overflow_hidden().child(window.paint_path(DOTTED_DIVIDER, t.input));
+    return div().id(id).relative().h_full().w(1).flex_none()
+      .child(div().absolute().top(0).bottom(0).left(-1).w(3).overflow_hidden().child(window.paint_path(DOTTED_DIVIDER, t.input)));
   }
 
   tabsRow(t, cx) {
@@ -637,9 +638,8 @@ export default class Docket extends View {
       .hover((s) => s.bg(t.hover))
       .on_click(() => run("space.new", m ? { machine: m } : {}))
       .child(svg(ICON("plus")).size(12));
-    return h_flex().relative().size_full().min_w(0).pt(SP_TOP).px(16).items_center().bg(t.background).text_size(15)
-      // A dotted rule along the top, between the tabs and spaces rows (see DOTTED_RULE).
-      .child(div().absolute().top(0).left(0).right(0).h(1).child(window.paint_path(DOTTED_RULE, t.input)))
+    const rule = div().id("sp-rule").w_full().h(3).flex_none().overflow_hidden().child(window.paint_path(DOTTED_RULE, t.input));
+    const row = h_flex().flex_1().min_h(0).min_w(0).pt(SP_TOP).px(16).items_center().text_size(15)
       // A drag let go anywhere else in the row ends without a move (a space's own release runs first).
       .on_mouse_up("left", (_e, cx) => { if (this.drag) { this.drag = null; cx.notify(); } })
       .child(h_flex().id("sp-scroll").flex_1().min_w(0).h_full().items_center().overflow_x_scrollbar()
@@ -658,6 +658,7 @@ export default class Docket extends View {
             .child(div().ml(SP_PAD - 8).child(add(g.machine))),
           ...(gi < groups.length - 1 ? [div().id(`grp-rule-${gi}`).w(1).h(17).flex_none().bg(t.input)] : []),
         ]))));
+    return v_flex().size_full().min_w(0).bg(t.background).child(rule).child(row);
   }
 
   // ---- agents --------------------------------------------------------------------------
